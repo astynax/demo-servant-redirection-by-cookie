@@ -21,14 +21,14 @@ type Index =
   Header "Cookie" Cookies'
   :> UVerb 'GET '[PlainText]
   '[ WithStatus 200 Text
-  ,  WithStatus 303 (Headers '[Header "Location" Text] Text)
+  ,  WithStatus 303 (Headers '[Header "Location" Link] Text)
   ]
 
 type Login =
   "login" :> Verb 'GET 303 '[PlainText]
     (Headers
-     '[ Header "Location" Text
-     ,  Header "Set-Cookie" SetCookie
+     '[ Header "Set-Cookie" SetCookie
+     ,  Header "Location" Link
      ] Text
      )
 
@@ -38,34 +38,37 @@ instance FromHttpApiData Cookies' where
   parseHeader = return . Cookies' . parseCookies
   parseQueryParam = return . Cookies' . parseCookies . TE.encodeUtf8
 
+api :: Proxy Api
+api = Proxy
+
 server :: Server Api
 server = index :<|> login
   where
     index :: Maybe Cookies' -> Handler
       (Union
       '[ WithStatus 200 Text
-      ,  WithStatus 303 (Headers '[Header "Location" Text] Text)
+      ,  WithStatus 303 (Headers '[Header "Location" Link] Text)
       ])
     index cookies =
       case cookies >>= lookup "logged_in" . unCookies' of
         Just "true" ->
           respond
-            $ WithStatus @200 @Text
-            $ "Yay!"
+            $ WithStatus @200
+            $ ("Yay!" :: Text)
         _ ->
           respond
             $ WithStatus @303
-            $ addHeader @"Location" @Text @Text "/login"
-            $ "ok"
+            $ addHeader @"Location" (safeLink api (Proxy @Login))
+            $ ("ok" :: Text)
     login = do
       let cookie = defaultSetCookie
             { setCookieName = "logged_in"
             , setCookieValue = "true"
             }
       pure
-        $ addHeader @"Location" @Text "/"
-        $ addHeader @"Set-Cookie" @SetCookie cookie
-        $ "ok"
+        $ addHeader @"Set-Cookie" cookie
+        $ addHeader @"Location" (safeLink api (Proxy @Index))
+        $ ("ok" :: Text)
 
 app :: Application
 app = serve (Proxy @Api) server
